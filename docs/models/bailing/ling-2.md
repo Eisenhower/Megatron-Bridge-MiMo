@@ -17,6 +17,10 @@
 - Sigmoid routing with QK-Norm and Half RoPE.
 - Custom Hugging Face model code is required, so conversion and inference commands use `--trust-remote-code`.
 
+## Inference Sizing
+
+The 100B `Ling-flash-2.0` variants require a larger-memory or multi-node inference setup. The single-node 8-GPU example uses the smaller `Ling-mini-2.0` checkpoint by default; do not treat `Ling-flash-2.0` with `TP=2 EP=4` as a viable single-node 80GB-GPU inference configuration.
+
 ## Examples
 
 For checkpoint import/export, round-trip validation, and inference commands, see the [Bailing examples README](https://github.com/NVIDIA-NeMo/Megatron-Bridge/blob/main/examples/models/bailing/README.md).
@@ -25,4 +29,3 @@ For checkpoint import/export, round-trip validation, and inference commands, see
 
 - Bridge implementation: [`src/megatron/bridge/models/bailing`](https://github.com/NVIDIA-NeMo/Megatron-Bridge/tree/main/src/megatron/bridge/models/bailing)
 - Examples: [`examples/models/bailing`](https://github.com/NVIDIA-NeMo/Megatron-Bridge/tree/main/examples/models/bailing)
-

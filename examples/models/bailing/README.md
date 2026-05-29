@@ -11,6 +11,12 @@ Ling 2.0 uses a high-sparsity Mixture of Experts (MoE) architecture with sigmoid
 | Ling-mini-2.0 | `inclusionAI/Ling-mini-2.0` | MoE (256 experts, top-8) | 16B | 1.5B |
 | Ling-mini-base-2.0 | `inclusionAI/Ling-mini-base-2.0` | MoE (256 experts, top-8) | 16B | 1.5B |
 
+## Inference Sizing
+
+The `Ling-flash-2.0` and `Ling-flash-base-2.0` checkpoints are 100B-parameter MoE models. They are not suitable as single-node 8-GPU 80GB inference examples with `TP=2 EP=4`: this configuration leaves effectively no memory headroom for activations, KV cache, or communication buffers after loading weights.
+
+Use the smaller `Ling-mini-2.0` variant for the default single-node 8-GPU smoke example in [inference.sh](inference.sh). Run the 100B flash variants only on a larger-memory or multi-node setup and choose `TP`, `EP`, and process count for that environment.
+
 ## Workspace Configuration
 
 All scripts use a `WORKSPACE` environment variable for the base directory. Default: `/workspace`.
@@ -26,6 +32,8 @@ Directory structure:
 ## Checkpoint Conversion
 
 See [conversion.sh](conversion.sh) for checkpoint conversion examples.
+
+The conversion script defaults to `Ling-flash-2.0`. Set `MODEL_NAME=Ling-mini-2.0` before running it if you want the imported/exported checkpoints to match the default single-node inference example.
 
 ### Import HF → Megatron
 
@@ -60,13 +68,19 @@ python -m torch.distributed.run --nproc_per_node=8 \
 ## Inference
 
 See [inference.sh](inference.sh) for text generation with:
-- Hugging Face checkpoint (`inclusionAI/Ling-flash-2.0`)
+- Hugging Face checkpoint (`inclusionAI/Ling-mini-2.0` by default)
 - Imported Megatron checkpoint (after [conversion.sh](conversion.sh) import)
 - Exported HF checkpoint (after conversion export)
 
-The default parallelism for 8 GPUs is `--tp 2 --ep 4`.
+The default single-node parallelism for 8 GPUs is `--tp 2 --ep 4` with `Ling-mini-2.0`.
 TP×PP×EP must equal `--nproc_per_node`.
 
-> **Note**: `--tp 1 --ep 8` works for conversion round-trip but may cause issues during autoregressive inference with single-token batches (empty token dispatch to some EP ranks). Use `--tp 2 --ep 4` for inference.
+Override the model and parallelism explicitly for other environments:
+
+```bash
+MODEL_NAME=Ling-mini-2.0 TP=2 EP=4 NPROC_PER_NODE=8 bash examples/models/bailing/inference.sh
+```
+
+> **Note**: `Ling-flash-2.0` with `--tp 2 --ep 4` is not expected to fit on a single 8-GPU 80GB node. `--tp 1 --ep 8` works for conversion round-trip but may cause issues during autoregressive inference with single-token batches (empty token dispatch to some EP ranks). Use a larger-memory or multi-node inference setup for the 100B flash variants.
 
 > **Note**: All Ling 2.0 models use custom HuggingFace code, so `--trust-remote-code` is required for conversion and inference.
