@@ -69,8 +69,12 @@ python -m torch.distributed.run --nproc_per_node=8 \
 
 See [inference.sh](inference.sh) for text generation with:
 - Hugging Face checkpoint (`inclusionAI/Ling-mini-2.0` by default)
-- Imported Megatron checkpoint (after [conversion.sh](conversion.sh) import)
 - Exported HF checkpoint (after conversion export)
+- Imported Megatron checkpoint (commented out by default)
+
+The imported Megatron checkpoint command is left commented out because that load
+path can need extra temporary memory during checkpoint restore. Uncomment it for
+targeted validation on a setup with enough memory headroom.
 
 The default single-node parallelism for 8 GPUs is `--tp 2 --ep 4` with `Ling-mini-2.0`.
 TP×PP×EP must equal `--nproc_per_node`.

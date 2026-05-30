@@ -37,14 +37,16 @@ uv run python -m torch.distributed.run --nproc_per_node="${NPROC_PER_NODE}" exam
     --tp "${TP}" --ep "${EP}" \
     --trust-remote-code
 
-# Inference with imported Megatron checkpoints
-uv run python -m torch.distributed.run --nproc_per_node="${NPROC_PER_NODE}" examples/conversion/hf_to_megatron_generate_text.py \
-    --hf_model_path "${HF_MODEL_ID}" \
-    --megatron_model_path "${MEGATRON_MODEL_PATH}" \
-    --prompt "Hello, how are you?" \
-    --max_new_tokens 64 \
-    --tp "${TP}" --ep "${EP}" \
-    --trust-remote-code
+# Inference with imported Megatron checkpoints. This path is left commented out
+# by default because checkpoint restore can need extra temporary merge memory.
+# Uncomment it for targeted validation on a setup with enough memory headroom.
+# uv run python -m torch.distributed.run --nproc_per_node="${NPROC_PER_NODE}" examples/conversion/hf_to_megatron_generate_text.py \
+#     --hf_model_path "${HF_MODEL_ID}" \
+#     --megatron_model_path "${MEGATRON_MODEL_PATH}" \
+#     --prompt "Hello, how are you?" \
+#     --max_new_tokens 64 \
+#     --tp "${TP}" --ep "${EP}" \
+#     --trust-remote-code
 
 # Inference with exported HF checkpoints
 uv run python -m torch.distributed.run --nproc_per_node="${NPROC_PER_NODE}" examples/conversion/hf_to_megatron_generate_text.py \
