@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MiMo-V2-Flash · verl 适配迁移到 Megatron-Bridge · 变更说明</title>
+<style>
+  :root{
+    --bg:#0f1419; --panel:#161b22; --border:#2a313c; --fg:#e6edf3; --muted:#9aa7b4;
+    --accent:#4f9cf9; --green:#3fb950; --amber:#d29922; --red:#f85149; --code:#1c2128;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;line-height:1.65;font-size:15px}
+  .wrap{max-width:1040px;margin:0 auto;padding:40px 28px 80px}
+  h1{font-size:26px;margin:0 0 6px;letter-spacing:.3px}
+  h2{font-size:20px;margin:38px 0 12px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+  h3{font-size:16px;margin:22px 0 8px;color:var(--accent)}
+  .sub{color:var(--muted);font-size:13px;margin-bottom:28px}
+  p{margin:8px 0}
+  code{background:var(--code);padding:1.5px 6px;border-radius:5px;font-family:"SF Mono",Menlo,Consolas,monospace;font-size:13px;color:#ffd9a0}
+  pre{background:var(--code);border:1px solid var(--border);border-radius:8px;padding:14px 16px;overflow:auto;font-size:12.5px;line-height:1.5}
+  pre code{background:none;padding:0;color:#cdd9e5}
+  .add{color:var(--green)} .del{color:var(--red)}
+  table{border-collapse:collapse;width:100%;margin:14px 0;font-size:13.5px}
+  th,td{border:1px solid var(--border);padding:8px 11px;text-align:left;vertical-align:top}
+  th{background:#1b2230;color:#fff;font-weight:600}
+  tr:nth-child(even) td{background:#12171f}
+  .panel{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:16px 20px;margin:16px 0}
+  .ok{color:var(--green);font-weight:600}
+  .warn{color:var(--amber);font-weight:600}
+  .tag{display:inline-block;font-size:11px;padding:2px 8px;border-radius:20px;border:1px solid var(--border);color:var(--muted);margin-left:6px}
+  .pill-new{background:rgba(63,185,80,.12);border-color:var(--green);color:var(--green)}
+  .pill-mod{background:rgba(79,156,249,.12);border-color:var(--accent);color:var(--accent)}
+  ul{margin:6px 0 6px 0;padding-left:22px}
+  li{margin:4px 0}
+  .kpi{display:flex;gap:14px;flex-wrap:wrap;margin:14px 0}
+  .kpi div{flex:1;min-width:150px;background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px 16px;text-align:center}
+  .kpi .num{font-size:22px;font-weight:700;color:var(--green)}
+  .kpi .lbl{font-size:12px;color:var(--muted);margin-top:4px}
+  .note{border-left:3px solid var(--accent);padding-left:14px;color:var(--muted);font-size:13.5px;margin:12px 0}
+  .muted{color:var(--muted)}
+  footer{margin-top:50px;padding-top:18px;border-top:1px solid var(--border);color:var(--muted);font-size:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>MiMo-V2-Flash · verl 适配迁移到 Megatron-Bridge</h1>
+  <div class="sub">变更说明（相对 <code>main</code> 已有的 MiMo-V2-Flash 适配 #3163）&nbsp;·&nbsp;生成于 2026-06-02</div>
+
+  <div class="panel">
+    <strong>一句话总结：</strong>
+    <code>main</code> 上已有的 #3163 提供了 MiMo-V2-Flash 的基础桥接（结构、权重映射、FP8 反量化加载）。
+    本次工作在此基础上，把 <strong>verl 的 RL 训练适配语义</strong>对齐进来（MoE 路由、attention value 缩放、attention-sink 冻结），
+    补齐了 <strong>训练 recipe</strong> 与 <strong>recipe 单测</strong>，并通过远程 GPU 实测验证了
+    <strong>HF↔Megatron 前向数值一致性（cosine ≈ 0.999）</strong>。同时论证并确认 <strong>Megatron-LM 无需任何改动</strong>。
+  </div>
+
+  <h2>1. 背景与目标</h2>
+  <p>
+    目标是把 verl 中对 MiMo-V2-Flash 的 Megatron 训练适配迁移进 Megatron-Bridge，后续通过
+    “verl 集成 Megatron-Bridge” 的方式做该模型的 RL 训练（verl 官方推荐路径）。约束：
+  </p>
+  <ul>
+    <li>不集成 FP8 <em>训练</em>代码（保留把开源 FP8 权重<strong>反量化为 BF16 加载</strong>的必需路径）。</li>
+    <li>凡 verl 与 main 行为有差异，以 <strong>verl（经真实 RL 训练验证的配置）</strong>为准；但实现方案必须合理。</li>
+    <li>判定 Megatron-LM 这部分代码应集成进 Bridge 还是保留在 Megatron-LM。</li>
+  </ul>
+
+  <h2>2. 变更总览（相对 <code>main</code>）</h2>
+  <table>
+    <tr><th>文件</th><th>性质</th><th>内容</th></tr>
+    <tr><td><code>models/mimo_v2_flash/mimo_v2_flash_bridge.py</code></td><td><span class="tag pill-mod">修改</span></td><td>MoE 路由配置对齐 verl 真值（sigmoid / pre_softmax=False / bias_update_rate=0 / fp32 / 显式 score_function）</td></tr>
+    <tr><td><code>models/mimo_v2_flash/modeling_mimo_v2_flash.py</code></td><td><span class="tag pill-mod">修改</span></td><td>在 QKV 切分后对 V 应用 <code>attention_value_scale</code>；清理误导性死代码并加防双重缩放注释</td></tr>
+    <tr><td><code>models/mimo_v2_flash/mimo_v2_flash_provider.py</code></td><td><span class="tag pill-mod">修改</span></td><td>新增 <code>freeze_attention_sink_bias</code> 字段并在建模后冻结 sink bias（RL 不训练该参数）</td></tr>
+    <tr><td><code>recipes/mimo_v2_flash/</code>（2 文件）</td><td><span class="tag pill-new">新增</span></td><td>BF16 训练 recipe：pretrain / sft / peft，无任何 FP8 训练配置</td></tr>
+    <tr><td><code>recipes/__init__.py</code></td><td><span class="tag pill-mod">修改</span></td><td>按字母序注册 mimo_v2_flash recipe 家族</td></tr>
+    <tr><td><code>tests/unit_tests/models/mimo_v2_flash/test_mimo_v2_flash_bridge.py</code></td><td><span class="tag pill-mod">修改</span></td><td>MoE 断言更新为 verl 真值；新增 sink-bias 冻结默认值测试</td></tr>
+    <tr><td><code>tests/unit_tests/recipes/test_mimo_v2_flash_recipes.py</code></td><td><span class="tag pill-new">新增</span></td><td>pretrain / sft / peft(lora) / peft(dora) 共 4 个参数化用例</td></tr>
+  </table>
+  <p class="muted">统计：5 个文件修改 + 2 处新增（recipe 目录、recipe 测试）。<code>main</code> 已有的桥接结构、权重映射、FP8 反量化加载逻辑均未推翻，仅在其上叠加 RL 语义与 recipe。</p>
+
+  <h2>3. 逐项详解</h2>
+
+  <h3>3.1 MoE 路由对齐 verl 真值（bridge）</h3>
+  <p>MiMo-V2-Flash 是 256 专家、top-8、sigmoid 打分的细粒度 MoE（DeepSeek 风格 <code>noaux_tc</code>）。把路由参数显式设为 verl 经训练验证的取值：</p>
+  <pre><code><span class="del">-        provider.moe_router_pre_softmax = True</span>
+<span class="add">+        provider.moe_router_score_function = "sigmoid"   # 显式，不再隐式依赖 HF scoring_func</span>
+<span class="add">+        provider.moe_router_pre_softmax = False          # sigmoid 打分，top-k 取原始分数</span>
+<span class="add">+        provider.moe_router_bias_update_rate = 0.0       # 冻结 e_score_correction_bias（RL 不在线更新）</span>
+<span class="add">+        provider.moe_router_dtype = "fp32"               # 256 专家 + sigmoid 需 fp32 路由保数值稳定</span>
+         provider.moe_router_load_balancing_type = "none"
+         provider.moe_router_enable_expert_bias = True</code></pre>
+  <p class="note">依据：verl <code>models/mcore/mimo_v2_flash/config_converter.py</code> 路由段逐字段一致。</p>
+
+  <h3>3.2 attention_value_scale 应用到 V（modeling）</h3>
+  <p>MiMo-V2-Flash 在注意力中对 V 整体乘以常数 <code>attention_value_scale</code>（如 0.707）。在 QKV 非对称切分之后、进入 TE 注意力之前折到 V 上：</p>
+  <pre><code><span class="add">+        value_scale = getattr(self.config, "attention_value_scale", None)</span>
+<span class="add">+        if value_scale is not None:</span>
+<span class="add">+            value = value * value_scale</span></code></pre>
+  <p class="note">
+    与 verl <code>core_attention.py</code>（<code>value = value * attention_value_scale</code>）及 vLLM 推理一致；
+    由于注意力对 V 是线性的，“切分后乘 V”与“注意力入口乘 V”数值等价。
+  </p>
+
+  <h3>3.3 attention-sink bias 冻结（provider）</h3>
+  <p>sink bias 是预训练标定值，RL 阶段必须冻结，否则噪声梯度会破坏滑窗注意力分布。Bridge 走 TE 原生 <code>softmax_type="learnable"</code>，对应参数名 <code>core_attention.softmax_offset</code>：</p>
+  <pre><code><span class="add">+    freeze_attention_sink_bias: bool = True</span>
+<span class="add">+    # provide() 内、建模完成后：</span>
+<span class="add">+    if self.freeze_attention_sink_bias:</span>
+<span class="add">+        for name, param in model.named_parameters():</span>
+<span class="add">+            if name.endswith("softmax_offset"):</span>
+<span class="add">+                param.requires_grad = False</span></code></pre>
+  <p class="note">依据：verl <code>attention.py</code> 中 <code>attention_sink_bias = nn.Parameter(..., requires_grad=False)</code>。</p>
+
+  <h3>3.4 死代码清理 / 防双重缩放（modeling）</h3>
+  <p>原 <code>MiMoV2FlashTEDotProductAttention.__init__</code> 中保留了一行只赋值不使用的 <code>self._attention_value_scale</code>，
+  会误导维护者以为 core attention 里也应用了 value_scale（实际只在 §3.2 应用一次）。改为明确注释，避免未来“双重缩放”bug：</p>
+  <pre><code><span class="del">-        self._attention_value_scale = getattr(config, "attention_value_scale", None)</span>
+<span class="add">+        # NOTE: attention_value_scale 已在 get_query_key_value_tensors 对 V 应用过</span>
+<span class="add">+        # （匹配 verl/vLLM）。不要在此再次应用，否则会双重缩放。</span></code></pre>
+
+  <h3>3.5 训练 recipe（新增）</h3>
+  <p><code>recipes/mimo_v2_flash/mimo_v2_flash.py</code> 提供 3 个 BF16 配置：<code>pretrain</code> / <code>sft</code> / <code>peft(lora|dora)</code>，
+  统一应用 MoE/attention kernel 设置（<code>transformer_engine</code> + <code>alltoall</code> + grouped GEMM + permute fusion，且关闭 force-load-balancing 以保 RL/推理一致）。
+  <strong>不含任何 FP8 训练 recipe/config/param</strong>。RL 经 verl 直接经 <code>AutoBridge</code> 驱动模型，不依赖这些 recipe。</p>
+
+  <h2>4. 远程 GPU 实测验证（2×H20）</h2>
+  <div class="kpi">
+    <div><div class="num">26 ✓</div><div class="lbl">bridge 单测通过</div></div>
+    <div><div class="num">4 ✓</div><div class="lbl">recipe 单测通过</div></div>
+    <div><div class="num">无报错</div><div class="lbl">TP=2 真实权重 build+加载+导出</div></div>
+    <div><div class="num">0.999</div><div class="lbl">HF↔Megatron 前向 cosine</div></div>
+  </div>
+  <table>
+    <tr><th>验证项</th><th>方法</th><th>结果</th></tr>
+    <tr><td>bridge 单测</td><td>26 个用例（含 QKV 非对称合并/拆分 roundtrip、FP8 反量化）</td><td class="ok">26 passed</td></tr>
+    <tr><td>recipe 单测</td><td>pretrain/sft/peft(lora)/peft(dora)</td><td class="ok">4 passed</td></tr>
+    <tr><td>TP=2 真实权重 smoke</td><td>4-layer 真实 FP8 权重：build + 反量化加载 + 导出 2385 个 HF 张量</td><td class="ok">无报错</td></tr>
+    <tr><td>HF↔Megatron 前向 parity</td><td>随机 BF16 小模型（绕开 HF FP8Linear 阻塞），同权重同输入比 logits</td><td class="ok">cosine 0.9991（全混合）/ 0.9997（vanilla）</td></tr>
+  </table>
+  <p class="note">
+    parity 用变量隔离法定位：两边都不加 value_scale 时 cosine=0.9997、argmax 100%（证明 partial-RoPE / 非对称 V / dual-RoPE / SWA+sink / MoE 全部计算正确）；
+    给 HF 参考补齐 value_scale 后，完整混合模型回到 cosine 0.9991。结论：Bridge 计算正确，唯一语义点 value_scale 选择与 verl/vLLM 一致。
+  </p>
+
+  <h2>5. 关键技术判断</h2>
+
+  <h3>5.1 Megatron-LM 无需改动 <span class="ok">（已论证 + 实测）</span></h3>
+  <p>verl 当年改 MLM 是因为走自研 PyTorch-SDPA 路线、需把逐层配置透传进 <code>TransformerConfig</code>。Bridge 走
+  <strong>TE 原生 + 子类化</strong>路线即可覆盖全部所需语义：</p>
+  <table>
+    <tr><th>verl 在 MLM 加的东西</th><th>Bridge 的等价承载</th></tr>
+    <tr><td>attention sink bias（自研模块/开关）</td><td>TE 原生 <code>softmax_type="learnable"</code> 的 <code>softmax_offset</code>（HF 官方也是“sink 作为额外 softmax 列再丢弃”的 off-by-one 写法，二者等价）</td></tr>
+    <tr><td>per-layer RoPE theta（253 行 registry）</td><td><code>MiMoV2FlashRotaryEmbedding</code> 双 base（SWA 用 local、full 用 global），同 Gemma3 模式</td></tr>
+    <tr><td>per-layer KV heads / 非对称 V</td><td>子类逐层切换 <code>num_query_groups</code>；TE 的 <code>k_channels</code>/<code>v_channels</code> 承载非对称 V</td></tr>
+    <tr><td>滑窗</td><td>TE <code>window_size</code>（见 5.3）</td></tr>
+  </table>
+  <p class="note">符合 Bridge “不改 3rdparty/Megatron-LM、模型专属逻辑只放 model family 目录” 的规范。本地独立的 Megatron-LM 仓保持零改动。</p>
+
+  <h3>5.2 attention_value_scale：三方一致性 <span class="ok">（已确认）</span></h3>
+  <p>该参数在 verl、vLLM、Bridge 中均应用 <code>value * 0.707</code>。小米 MiMo 官方此前的 HF <code>modeling</code> 一度遗漏了它，现已补齐。三方对齐，Bridge 实现正确。</p>
+
+  <h3>5.3 滑窗 window：Bridge 比 verl 更贴合官方实现</h3>
+  <p>HF 官方 modeling 用 transformers 的 <code>sliding_window_causal</code>（<code>sliding_window=W</code> ⇒ 每个 query 关注 <strong>W</strong> 个 key）。
+  Bridge 用 <code>window_size=(W-1, 0)</code> = <strong>W</strong> 个 key，<span class="ok">与 HF 一致</span>；
+  verl 用 <code>(W, 0)</code> = W+1 个 key，是 verl 侧的一个 off-by-one。故此处<strong>保留 Bridge 现状（更准）</strong>，未刻意复制 verl 的偏差。</p>
+
+  <h3>5.4 routed_scaling_factor：自动与 vLLM/HF 一致 <span class="ok">（已确认）</span></h3>
+  <p>该值在当前权重 config 中为 <code>null</code>，Bridge 经 CONFIG_MAPPING 后等效 1.0（与 HF/vLLM 默认一致，已被含 MoE 层的 parity 实测覆盖）。
+  若将来真实模型设为非 1.0，Bridge 会自动取该值并应用，仍与 vLLM/HF 对齐。<strong>无需改动。</strong></p>
+
+  <h2>6. v0.4.2 移植说明</h2>
+  <p>在 <code>v0.4.2</code> tag（其原本没有 MiMo-V2-Flash）上从无到有移植：模型/recipe/测试文件与 <code>main</code> 分支
+  <strong>逐字节一致</strong>，仅额外在 <code>models/__init__.py</code> 注册导出（main 已由 #3163 注册，故 main 侧无此改动）：</p>
+  <pre><code>src/megatron/bridge/models/__init__.py    +7 行（导入 + __all__ 暴露 MiMoV2FlashBridge / MiMoV2FlashModelProvider）
+src/megatron/bridge/recipes/__init__.py   +1 行（注册 recipe 家族）</code></pre>
+  <p class="muted">两分支均通过同一 git 仓库的 worktree 共用 <code>.git</code>，子模块 pin 各自匹配（main→mcore main，v0.4.2→core_r0.17）。</p>
+
+  <h2>7. 已知限制</h2>
+  <ul>
+    <li>暂不支持上下文并行（CP）：provider 内 <code>assert context_parallel_size &lt;= 1</code>。</li>
+    <li>recipe 默认 TP=4/PP=4/EP=8，面向多机；2 卡环境主要用 <code>AutoBridge</code> 直接驱动（RL 路径），不依赖 recipe。</li>
+    <li>仅集成 FP8 <em>反量化加载</em>，不含 FP8 训练。</li>
+  </ul>
+
+  <footer>
+    本文档为本次集成相对 <code>main</code> 的变更说明。数值验证在远程 2×H20 环境完成；为合规，文中不含任何集群路径、主机名或账号信息。
+  </footer>
+
+</div>
+</body>
+</html>

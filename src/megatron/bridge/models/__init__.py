@@ -78,6 +78,10 @@ from megatron.bridge.models.llama_nemotron import (
 )
 from megatron.bridge.models.mamba.mamba_provider import MambaModelProvider
 from megatron.bridge.models.mimo.mimo_bridge import MimoBridge
+from megatron.bridge.models.mimo_v2_flash import (
+    MiMoV2FlashBridge,
+    MiMoV2FlashModelProvider,
+)
 from megatron.bridge.models.minimax_m2 import (
     MiniMaxM2Bridge,
 )
@@ -184,6 +188,9 @@ __all__ = [
     "LlamaNemotronBridge",
     "MistralModelProvider",
     "MistralSmall3ModelProvider24B",
+    # MiMo-V2-Flash
+    "MiMoV2FlashBridge",
+    "MiMoV2FlashModelProvider",
     # Ministral 3 Models
     "Ministral3Bridge",
     "Ministral3Model",
