@@ -169,11 +169,24 @@ class MiMoV2FlashBridge(MegatronModelBridge):
         # moe_layer_freq default on provider is int 1 — must override with list
         provider.moe_layer_freq = list(hf_config.moe_layer_freq)
 
-        # noaux_tc: no auxiliary loss, learned expert bias
+        # noaux_tc routing. Values are aligned with verl's training-validated config
+        # (verl/models/mcore/mimo_v2_flash/config_converter.py) — this is the source of
+        # truth, since that path has been exercised in real RL training runs.
         provider.moe_router_load_balancing_type = "none"
+        # Sigmoid scoring + learned per-expert correction bias (e_score_correction_bias).
+        # Note: CONFIG_MAPPING already maps HF "scoring_func" -> moe_router_score_function,
+        # but we set it explicitly so the routing semantics do not silently depend on that
+        # field being present in the HF config.
+        provider.moe_router_score_function = "sigmoid"
         provider.moe_router_enable_expert_bias = True
+        # Freeze the pretrained correction bias during RL — no online bias updates.
+        provider.moe_router_bias_update_rate = 0.0
+        # 256 experts + sigmoid routing need fp32 routing for numerical stability.
+        provider.moe_router_dtype = "fp32"
         provider.moe_grouped_gemm = True
-        provider.moe_router_pre_softmax = True
+        # Sigmoid is applied per-expert; top-k selection happens on the raw sigmoid
+        # scores (post-activation), so pre_softmax must be False.
+        provider.moe_router_pre_softmax = False
         provider.moe_token_dispatcher_type = "alltoall"
 
         # Attention value scale

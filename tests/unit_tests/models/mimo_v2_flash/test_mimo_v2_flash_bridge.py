@@ -146,11 +146,21 @@ class TestMiMoV2FlashBridgeProviderBridge:
         assert provider.attention_value_scale == 0.707
 
     def test_moe_noaux_tc(self, provider):
+        # Values aligned with verl's training-validated config
+        # (verl/models/mcore/mimo_v2_flash/config_converter.py).
         assert provider.moe_router_load_balancing_type == "none"
+        assert provider.moe_router_score_function == "sigmoid"
         assert provider.moe_router_enable_expert_bias is True
+        assert provider.moe_router_bias_update_rate == 0.0
+        assert provider.moe_router_dtype == "fp32"
         assert provider.moe_grouped_gemm is True
-        assert provider.moe_router_pre_softmax is True
+        # Sigmoid scoring: top-k on raw sigmoid scores, so pre_softmax must be False.
+        assert provider.moe_router_pre_softmax is False
         assert provider.moe_token_dispatcher_type == "alltoall"
+
+    def test_freeze_attention_sink_bias_default(self, provider):
+        # MiMo's pretrained sink bias must stay frozen during RL.
+        assert provider.freeze_attention_sink_bias is True
 
     def test_moe_layer_freq(self, provider):
         assert isinstance(provider.moe_layer_freq, list)

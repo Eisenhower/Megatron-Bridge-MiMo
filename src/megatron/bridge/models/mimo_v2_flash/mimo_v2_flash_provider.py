@@ -71,6 +71,10 @@ class MiMoV2FlashModelProvider(GPTModelProvider):
     # Attention value scale
     attention_value_scale: Optional[float] = None
 
+    # Keep the attention sink bias (TE learnable-softmax offset) frozen. MiMo-V2-Flash's
+    # sink bias is pretrained-calibrated and must not be trained during RL (verl freezes it).
+    freeze_attention_sink_bias: bool = True
+
     # Architecture defaults that differ from GPTModelProvider
     normalization: str = "RMSNorm"
     gated_linear_unit: bool = True
@@ -123,5 +127,15 @@ class MiMoV2FlashModelProvider(GPTModelProvider):
             use_cpu_initialization=self.use_cpu_initialization,
             rotary_base_local=rotary_base_local,
         )
+
+        # Freeze the attention sink bias (TE learnable-softmax offset on SWA layers).
+        # MiMo-V2-Flash's sink bias is a pretrained-calibrated value; verl keeps the
+        # equivalent parameter at requires_grad=False because training it with noisy RL
+        # gradients corrupts the sliding-window attention distribution. Keep it frozen
+        # here so the Bridge-built model matches that training-validated behavior.
+        if self.freeze_attention_sink_bias:
+            for name, param in model.named_parameters():
+                if name.endswith("softmax_offset"):
+                    param.requires_grad = False
 
         return model

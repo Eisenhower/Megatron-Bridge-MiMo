@@ -187,6 +187,15 @@ class MiMoV2FlashSelfAttention(SelfAttention):
         # [sq, b, ng, heads_per_group * qk_ch] -> [sq, b, np, qk_ch]
         query = query.reshape(query.size(0), query.size(1), -1, qk_ch)
 
+        # MiMo-V2-Flash scales the V tensor by a constant (attention_value_scale, e.g. 0.707).
+        # vLLM applies this scale to V at inference time, so training must apply the same scale
+        # to keep train/inference consistency. verl applies it in its core attention
+        # (verl/models/mcore/mimo_v2_flash/core_attention.py: ``value = value * attention_value_scale``);
+        # on the TE path we fold it into V here, which is numerically equivalent.
+        value_scale = getattr(self.config, "attention_value_scale", None)
+        if value_scale is not None:
+            value = value * value_scale
+
         return query, key, value
 
     def forward(
@@ -253,7 +262,9 @@ class MiMoV2FlashTEDotProductAttention(TEDotProductAttention):
         else:
             config.window_size = None
             config.softmax_type = "vanilla"
-        self._attention_value_scale = getattr(config, "attention_value_scale", None)
+        # NOTE: attention_value_scale is applied to V in
+        # MiMoV2FlashSelfAttention.get_query_key_value_tensors (before this core
+        # attention), matching verl/vLLM. Do NOT re-apply it here or it double-scales.
         # Pass k_channels/v_channels to TE so it knows about asymmetric V head dim
         kwargs["k_channels"] = config.kv_channels
         kwargs["v_channels"] = config.v_head_dim
